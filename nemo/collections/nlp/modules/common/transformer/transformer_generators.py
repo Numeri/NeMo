@@ -142,7 +142,7 @@ class GreedySequenceGenerator:
         return tgt, batch_size, max_generation_length
 
     def _forward(
-        self, decoder_input_ids=None, encoder_hidden_states=None, encoder_input_mask=None, return_beam_scores=False
+        self, decoder_input_ids=None, encoder_hidden_states=None, encoder_input_mask=None, return_beam_scores=False, forced_prefixes=None,
     ):
         assert not return_beam_scores
         tgt, batch_size, max_generation_length = self._prepare_for_search(decoder_input_ids, encoder_hidden_states)
@@ -159,7 +159,11 @@ class GreedySequenceGenerator:
                 tgt[:, -1:], encoder_hidden_states, encoder_input_mask, decoder_mems_list, i
             )
 
-            next_tokens = torch.argmax(log_probs[:, -1], dim=-1, keepdim=True)
+            if forced_prefixes is not None and i < forced_prefixes.shape[1]:
+                next_tokens = forced_prefixes[:, i]
+            else:
+                next_tokens = torch.argmax(log_probs[:, -1], dim=-1, keepdim=True)
+
             next_tokens = self.pad * pad_profile + next_tokens * (1 - pad_profile)
             pad_profile = torch.max(pad_profile, (next_tokens == self.eos).long())
             tgt = torch.cat((tgt, next_tokens), dim=-1)
@@ -171,11 +175,15 @@ class GreedySequenceGenerator:
         return tgt
 
     def __call__(
-        self, decoder_input_ids=None, encoder_hidden_states=None, encoder_input_mask=None, return_beam_scores=False
+        self, decoder_input_ids=None, encoder_hidden_states=None, encoder_input_mask=None, return_beam_scores=False, forced_prefixes=None,
     ):
         with self.as_frozen():
             return self._forward(
-                decoder_input_ids, encoder_hidden_states, encoder_input_mask, return_beam_scores=return_beam_scores
+                decoder_input_ids,
+                encoder_hidden_states,
+                encoder_input_mask,
+                return_beam_scores=return_beam_scores,
+                forced_prefixes=forced_prefixes,
             )
 
     def freeze(self) -> None:
