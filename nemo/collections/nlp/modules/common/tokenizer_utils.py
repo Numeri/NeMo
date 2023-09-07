@@ -160,9 +160,10 @@ def get_nmt_tokenizer(
         special_tokens: dict of special tokens
         vocab_file: path to vocab file
         use_fast: (only for HuggingFace AutoTokenizer) set to True to use fast HuggingFace tokenizer
-        bpe_dropout: (only supported by YTTM tokenizer) BPE dropout tries to corrupt the standard segmentation procedure
-            of BPE to help model better learn word compositionality and become robust to segmentation errors.
-            It has empirically been shown to improve inference time BLEU scores.
+        bpe_dropout: (only supported by YTTM and SentencePiece tokenizers) BPE dropout tries to corrupt
+            the standard segmentation procedure of BPE to help model better learn word compositionality
+            and become robust to segmentation errors. It has empirically been shown to improve inference
+            time BLEU scores.
         r2l: Whether to return subword IDs from right to left
     """
     if special_tokens is None:
@@ -190,7 +191,9 @@ def get_nmt_tokenizer(
     elif library == 'sentencepiece':
         logging.info(f'Getting SentencePiece with model: {tokenizer_model}')
         return nemo.collections.common.tokenizers.sentencepiece_tokenizer.SentencePieceTokenizer(
-            model_path=tokenizer_model, legacy=legacy
+            model_path=tokenizer_model,
+            bpe_dropout=bpe_dropout,
+            legacy=legacy,
         )
     elif library == 'byte-level':
         logging.info(f'Using byte-level tokenization')

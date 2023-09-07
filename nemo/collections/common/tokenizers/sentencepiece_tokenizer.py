@@ -37,7 +37,11 @@ class SentencePieceTokenizer(TokenizerSpec):
     """
 
     def __init__(
-        self, model_path: str, special_tokens: Optional[Union[Dict[str, str], List[str]]] = None, legacy: bool = False
+        self,
+        model_path: str,
+        special_tokens: Optional[Union[Dict[str, str], List[str]]] = None,
+        bpe_dropout: Optional[float] = 0.0,
+        legacy: bool = False
     ):
         if not model_path or not os.path.exists(model_path):
             raise ValueError(f"model_path: {model_path} is invalid")
@@ -49,6 +53,8 @@ class SentencePieceTokenizer(TokenizerSpec):
         self.legacy = legacy
         self.special_token_to_id = {}
         self.id_to_special_token = {}
+        self.bpe_dropout = bpe_dropout
+
         if special_tokens:
             if not self.legacy:
                 raise ValueError(
@@ -57,6 +63,8 @@ class SentencePieceTokenizer(TokenizerSpec):
             self.add_special_tokens(special_tokens)
 
     def text_to_tokens(self, text):
+        enable_sampling = self.bpe_dropout is not None and self.bpe_dropout > 0.0
+
         if self.legacy:
             tokens = []
             idx = 0
@@ -77,16 +85,29 @@ class SentencePieceTokenizer(TokenizerSpec):
                 next_token = min(indices, key=indices.get)
                 next_idx = idx + indices[next_token]
 
-                tokens.extend(self.tokenizer.encode_as_pieces(text[idx:next_idx]))
+                tokens.extend(
+                    self.tokenizer.encode_as_pieces(
+                        text[idx:next_idx],
+                        enable_sampling=enable_sampling,
+                        alpha=self.bpe_dropout,
+                    )
+                )
                 tokens.append(next_token)
                 idx = next_idx + len(next_token)
 
-            tokens.extend(self.tokenizer.encode_as_pieces(text[idx:]))
+            tokens.extend(
+                self.tokenizer.encode_as_pieces(
+                    text[idx:],
+                    enable_sampling=enable_sampling,
+                    alpha=self.bpe_dropout,
+                )
+            )
             return tokens
 
-        return self.tokenizer.encode_as_pieces(text)
+        return self.tokenizer.encode_as_pieces(text, enable_sampling=enable_sampling, alpha=self.bpe_dropout)
 
     def text_to_ids(self, text):
+        enable_sampling = self.bpe_dropout is not None and self.bpe_dropout > 0.0
         if self.legacy:
             ids = []
             idx = 0
@@ -107,14 +128,27 @@ class SentencePieceTokenizer(TokenizerSpec):
                 next_token = min(indices, key=indices.get)
                 next_idx = idx + indices[next_token]
 
-                ids.extend(self.tokenizer.encode_as_ids(text[idx:next_idx]))
+                ids.extend(
+                    self.tokenizer.encode_as_ids(
+                        text[idx:next_idx],
+                        enable_sampling=enable_sampling,
+                        alpha=self.bpe_dropout,
+                    )
+                )
                 ids.append(self.special_token_to_id[next_token])
                 idx = next_idx + len(next_token)
 
-            ids.extend(self.tokenizer.encode_as_ids(text[idx:]))
+            ids.extend(
+                self.tokenizer.encode_as_ids(
+                    text[idx:],
+                    enable_sampling=enable_sampling,
+                    alpha=self.bpe_dropout,
+                )
+            )
+
             return ids
 
-        return self.tokenizer.encode_as_ids(text)
+        return self.tokenizer.encode_as_ids(text, enable_sampling=enable_sampling, alpha=self.bpe_dropout)
 
     def tokens_to_text(self, tokens):
         if isinstance(tokens, np.ndarray):
