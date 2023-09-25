@@ -38,6 +38,9 @@ class ConcatDataset(IterableDataset):
             Defaults to 5.
         sampling_scale: Gives you the ability to upsample / downsample the dataset. Defaults to 1.
         sampling_probabilities (list): Probability values for sampling. Only used when sampling_technique = 'random'.
+        exhaustive (bool): If true, sample until all datasets are fully exhausted. Otherwise, sample
+            up to n elements, where n is the total number of elements in all datasets. Shorter datasets will be repeated
+            in both cases. Defaults to False.
         seed: Optional value to seed the numpy RNG.
         global_rank (int): Worker rank, used for partitioning map style datasets. Defaults to 0.
         world_size (int): Total number of processes, used for partitioning map style datasets. Defaults to 1.
@@ -51,6 +54,7 @@ class ConcatDataset(IterableDataset):
         sampling_temperature: int = 5,
         sampling_scale: int = 1,
         sampling_probabilities: List[float] = None,
+        exhaustive: bool = False,
         seed: Optional[int] = None,
         global_rank: int = 0,
         world_size: int = 1,
@@ -133,6 +137,8 @@ class ConcatDataset(IterableDataset):
         for idx, dataset in enumerate(self.datasets):
             iterable = self.get_iterable(dataset)
             self.iterables[idx] = iterable
+
+        non_exhausted_datasets = set(range(len(self.datasets)))
 
         n = 0
         ind_gen = self.index_generator(self.datasets, **self.sampling_kwargs)
