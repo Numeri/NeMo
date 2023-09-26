@@ -64,6 +64,7 @@ class TranslationDataConfig:
     concat_sampling_technique: Optional[str] = 'temperature'
     concat_sampling_temperature: Optional[int] = 5
     concat_sampling_probabilities: Optional[List[float]] = None
+    concat_exhaustive: Optional[bool] = False
 
 
 class TranslationDataset(Dataset):
