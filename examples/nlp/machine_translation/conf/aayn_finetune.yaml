@@ -28,6 +28,7 @@ model:
     concat_sampling_technique: temperature # only used with ConcatTranslationDataset 
     concat_sampling_temperature: 5 # only used with ConcatTranslationDataset 
     concat_sampling_probabilities: null # only used with ConcatTranslationDataset 
+    concat_exhaustive: False # When providing a list of datasets, this arg defines whether to sample until all datasets are exhausted or to sample a set number of elements per epoch
 
   validation_ds:
     src_file_name: ???

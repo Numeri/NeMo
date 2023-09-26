@@ -825,6 +825,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
                     sampling_technique=cfg.get('concat_sampling_technique'),
                     sampling_temperature=cfg.get('concat_sampling_temperature'),
                     sampling_probabilities=cfg.get('concat_sampling_probabilities'),
+                    exhaustive=cfg.get('concat_exhaustive', False),
                     global_rank=global_rank,
                     world_size=world_size,
                 )
@@ -868,6 +869,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
                     sampling_technique=cfg.get('concat_sampling_technique'),
                     sampling_temperature=cfg.get('concat_sampling_temperature'),
                     sampling_probabilities=cfg.get('concat_sampling_probabilities'),
+                    exhaustive=cfg.get('concat_exhaustive', False),
                     global_rank=global_rank,
                     world_size=world_size,
                 )

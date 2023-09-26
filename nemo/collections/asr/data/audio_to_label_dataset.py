@@ -152,6 +152,7 @@ def get_concat_tarred_speech_label_dataset(
         sampling_technique=config.get('concat_sampling_technique', 'temperature'),
         sampling_temperature=config.get('concat_sampling_temperature', 5),
         sampling_probabilities=config.get('concat_sampling_probabilities', None),
+        exhaustive=config.get('concat_exhaustive', False),
         global_rank=global_rank,
         world_size=world_size,
         shuffle=config['shuffle'],
