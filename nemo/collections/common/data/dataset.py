@@ -65,6 +65,8 @@ class ConcatDataset(IterableDataset):
         self.world_size = world_size
         self.sampling_kwargs = {}
         self.sampling_scale = sampling_scale
+        self.exhaustive = exhaustive
+        self.dataset_epoch_counts = [0] * len(datasets)
 
         if sampling_technique == 'temperature':
             self.index_generator = ConcatDataset.temperature_generator
@@ -134,7 +136,7 @@ class ConcatDataset(IterableDataset):
 
         n = 0
         ind_gen = self.index_generator(self.datasets, **self.sampling_kwargs)
-        while n < max_elements:
+        while self.exhaustive or n < max_elements:
             n += 1
             try:
                 ind = next(ind_gen)
@@ -146,6 +148,13 @@ class ConcatDataset(IterableDataset):
                     val = self.datasets[ind][val]
                 yield val
             except StopIteration:
+                self.dataset_epoch_counts[ind] += 1
+
+                if ind in non_exhausted_datasets:
+                    non_exhausted_datasets.remove(ind)
+                    if len(non_exhausted_datasets) == 0:
+                        return
+
                 self.iterables[ind] = self.get_iterable(self.datasets[ind])
                 n -= 1
 
