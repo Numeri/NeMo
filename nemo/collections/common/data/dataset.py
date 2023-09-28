@@ -71,35 +71,29 @@ class ConcatDataset(IterableDataset):
         self.sampling_scale = sampling_scale
         self.exhaustive = exhaustive
         self.dataset_epoch_counts = [0] * len(datasets)
+        self.sampling_technique = sampling_technique
 
         if sampling_technique == 'temperature':
-            self.index_generator = ConcatDataset.temperature_generator
+            self.index_generator_method = ConcatDataset.temperature_generator
             self.sampling_kwargs['temperature'] = sampling_temperature
             self.sampling_kwargs['seed'] = seed
         elif sampling_technique == 'random':
-            self.index_generator = ConcatDataset.random_generator
+            self.index_generator_method = ConcatDataset.random_generator
             self.sampling_kwargs['p'] = sampling_probabilities
             self.sampling_kwargs['seed'] = seed
         elif sampling_technique == 'round-robin':
-            self.index_generator = ConcatDataset.round_robin_generator
+            self.index_generator_method = ConcatDataset.round_robin_generator
         else:
             raise ValueError(f"Currently we only support sampling techniques in {supported_sampling_techniques}.")
-        self.length = 0
+
+        self.np_rng = np.random.RandomState(seed)
 
         if isinstance(datasets[0], IterableDataset):
             self.kind = 'iterable'
         else:
             self.kind = 'map'
 
-        for idx, dataset in enumerate(datasets):
-            isiterable = isinstance(dataset, IterableDataset)
-            if (isiterable and not self.kind == 'iterable') or (not isiterable and self.kind == 'iterable'):
-                raise ValueError("All datasets in ConcatDataset must be of the same kind (Iterable or Map).")
-
-            if self.kind == 'map':
-                self.length += len(dataset) // world_size
-            else:
-                self.length += len(dataset)
+        self.length = self.calculate_length()
 
         if self.sampling_scale != 1:
             self.length = int(self.length * self.sampling_scale)
@@ -141,13 +135,17 @@ class ConcatDataset(IterableDataset):
         non_exhausted_datasets = set(range(len(self.datasets)))
 
         n = 0
-        ind_gen = self.index_generator(self.datasets, **self.sampling_kwargs)
+        get_next_ind = True
+        self.ind_gen = self.index_generator_method(self.datasets, self.np_rng, **self.sampling_kwargs)
         while self.exhaustive or n < max_elements:
             n += 1
-            try:
-                ind = next(ind_gen)
-            except StopIteration:
-                return
+            if get_next_ind:
+                try:
+                    ind = next(self.ind_gen)
+                except StopIteration:
+                    return
+            else:
+                get_next_ind = True
             try:
                 val = next(self.iterables[ind])
                 if self.kind == 'map':
@@ -162,27 +160,82 @@ class ConcatDataset(IterableDataset):
                         return
 
                 self.iterables[ind] = self.get_iterable(self.datasets[ind])
+                get_next_ind = False
                 n -= 1
+
+    def update_generator(self):
+        self.calculate_length()
+        self.ind_gen = self.index_generator_method(self.datasets, self.np_rng, **self.sampling_kwargs)
+
+    def calculate_length(self):
+        sample_rates = ConcatDataset.get_sample_rates(
+            self.datasets,
+            self.sampling_technique,
+            **self.sampling_kwargs,
+        )
+        expected_required_samples = np.array([len(d) for d in self.datasets]) / sample_rates
+        max_expected_required_samples = expected_required_samples.max()
+
+        self.length = 0
+
+        for idx, dataset in enumerate(self.datasets):
+            isiterable = isinstance(dataset, IterableDataset)
+            if (isiterable and not self.kind == 'iterable') or (not isiterable and self.kind == 'iterable'):
+                raise ValueError("All datasets in ConcatDataset must be of the same kind (Iterable or Map).")
+
+            if self.kind == 'map':
+                dataset_length = len(dataset) // self.world_size
+            else:
+                dataset_length = len(dataset)
+
+            if self.exhaustive:
+                if expected_required_samples[idx] != max_expected_required_samples:
+                    self.length += dataset_length
+                else:
+                    self.length += max_expected_required_samples
+            else:
+                self.length += dataset_length
+
+        self.length = int(self.length)
+        return self.length
 
     def __len__(self):
         return self.length
 
     @staticmethod
-    def temperature_generator(datasets, **kwargs):
-        temp = kwargs.get('temperature')
-        if not temp:
-            raise ValueError("Temperature generator expects a 'temperature' keyword argument.")
+    def get_sample_rates(datasets, sampling_technique, **kwargs):
+        if sampling_technique == 'temperature':
+            temp = kwargs.get('temperature')
+            if not temp:
+                raise ValueError("Temperature generator expects a 'temperature' keyword argument.")
 
-        seed = kwargs.get('seed', None)
-        np_rng = np.random.RandomState(seed)
-        lengths = []
+            lengths = []
+            for dataset in datasets:
+                lengths.append(len(dataset))
+
+            p = np.array(lengths) / np.sum(lengths)
+            p = np.power(p, 1 / temp)
+            p = p / np.sum(p)
+
+        elif sampling_technique == 'random':
+            p = kwargs.get('p')
+            if not p:
+                raise ValueError("Random generator expects a 'p' keyowrd argument for sampling probabilities.")
+            if len(p) != len(datasets):
+                raise ValueError("Length of probabilities list must be equal to the number of datasets.")
+
+        elif sampling_technique == 'round-robin':
+            p = np.ones(shape=(len(datasets),)) / len(datasets)
+
+        else:
+            raise NotImplementedError(f'Unknown {sampling_technique = }')
+
+        return p
+
+    @staticmethod
+    def temperature_generator(datasets, np_rng, **kwargs):
+        p = ConcatDataset.get_sample_rates(datasets, 'temperature', **kwargs)
         num = len(datasets)
-        for dataset in datasets:
-            lengths.append(len(dataset))
-
-        p = np.array(lengths) / np.sum(lengths)
-        p = np.power(p, 1 / temp)
-        p = p / np.sum(p)
 
         while True:
             ind = np_rng.choice(np.arange(num), p=p)
@@ -196,16 +249,9 @@ class ConcatDataset(IterableDataset):
                 yield i
 
     @staticmethod
-    def random_generator(datasets, **kwargs):
-        p = kwargs.get('p')
-        if not p:
-            raise ValueError("Random generator expects a 'p' keyowrd argument for sampling probabilities.")
-
-        seed = kwargs.get('seed', None)
-        np_rng = np.random.RandomState(seed)
+    def random_generator(datasets, np_rng, **kwargs):
+        p = ConcatDataset.get_sample_rates(datasets, 'random', **kwargs)
         num = len(datasets)
-        if len(p) != num:
-            raise ValueError("Length of probabilities list must be equal to the number of datasets.")
 
         while True:
             ind = np_rng.choice(np.arange(num), p=p)
